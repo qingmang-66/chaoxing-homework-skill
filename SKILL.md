@@ -101,22 +101,49 @@ Step 3: 用户选择 → 继续
 
 ## 前置：连接浏览器
 
-### Chromium 内核（Edge/Chrome）
+### 浏览器选择（询问 → 记忆）
 
+**第一次使用时**，如果用户没有指定浏览器，询问：
+
+```
+需要使用哪个浏览器？
+1. Edge（推荐，Windows 自带）
+2. Chrome
+3. Firefox
+请输入序号：
+```
+
+用户选择后，将偏好写入 MEMORY.md：
+
+```
+## chaoxing-homework 浏览器偏好
+- 浏览器：Edge
+- CDP 端口：9222
+- 用户数据目录：C:\Users\钟健祺\AppData\Local\Microsoft\Edge\User Data
+- 更新时间：2026-05-07
+```
+
+**后续使用**：直接使用记忆中的浏览器，不再询问。除非用户主动说"换用 Chrome"等。
+
+### 启动浏览器
+
+**Edge（推荐）**：
 ```bash
-# 启动浏览器并开启 CDP 端口
-msedge.exe --remote-debugging-port=9222
-# 或
+msedge.exe --remote-debugging-port=9222 --user-data-dir="C:\Users\<用户名>\AppData\Local\Microsoft\Edge\User Data"
+```
+
+**Chrome**：
+```bash
 chrome.exe --remote-debugging-port=9222
 ```
 
-### Firefox
-
+**Firefox**：
 需要在 `about:config` 中开启 `devtools.debugger.remote-enabled`，然后：
-
 ```bash
 firefox.exe --remote-debugging-port=9222
 ```
+
+> ⚠️ 使用 `--user-data-dir` 加载你的配置文件，这样能保持登录状态。
 
 ### 连接
 
@@ -124,7 +151,7 @@ firefox.exe --remote-debugging-port=9222
 browser_use action=connect_cdp url=http://localhost:9222
 ```
 
-连接后用 snapshot 或 tabs 确认目标页面 page_id。
+连接后用 `tabs list` 确认当前标签页状态。
 
 ---
 
