@@ -506,22 +506,129 @@ i.chaoxing.com/base (个人空间)
 - 题目-iframe 映射：`iframe.closest('.stem_answer').parentElement.innerText`
 - 「暂时保存」按钮：页面顶部第一个 ref（e1）的 link 元素
 
-### 已验证的操作
-
-| 操作 | 方式 | 结果 |
-|------|------|------|
-| 读取课程列表 | `frame_selector=iframe[name='frame_content']` + snapshot | ✅ |
-| 读取作业列表 | `frame_selector=iframe[name='frame_content-zy']` + snapshot | ✅ |
-| 点击作业链接 | `frame_selector + ref + click` | ✅ 新标签页打开 |
-| 验证导航成功 | `tabs list` 检查所有标签页 | ✅ 找 URL 含 /work/dowork |
-| 直接修改 iframe src | 修改 location.href | ❌ 404/无权限 |
-
 ### ⚠️ 关键经验
 
 1. **`frame_selector + ref + click` 可以成功触发导航**，但导航在**新标签页**中打开
 2. **原标签页的 iframe src 不会变**，不要用 eval 检查 iframe src 判断是否成功
 3. **验证方式**：`tabs list` 检查所有标签页，找 URL 含 `/work/dowork` 的新标签页
 4. **snapshot vs eval 差异**：snapshot 能跨域读取完整渲染结果，eval 只能访问外层 iframe 的同域 DOM
+5. **不要依赖 snapshot ref 操作选择题**：ref 动态变化，不可靠。应该用 JavaScript DOM 操作
+
+### ✅ 正确的作业填写方法（2026-05-07 验证）
+
+#### 选择题 DOM 结构
+
+超星作业页面的选择题**不是**用 `<input type="radio">` 实现的，而是用 `<div>` 元素：
+
+```html
+<div class="stem_answer">
+  <div class="clearfix answerBg workTextWrap">
+    <div class="choice215094526 num_option fl">A</div>
+    <div class="choice215094526 num_option fl">B</div>
+    <div class="choice215094526 num_option fl check_answer">C</div>  ← 已选中
+    <div class="choice215094526 num_option fl">D</div>
+  </div>
+</div>
+```
+
+- **单选题**：class 包含 `num_option`（不含 `dx`），每题 4 个选项（A/B/C/D），选 1 个
+- **多选题**：class 包含 `num_option_dx`，每题 4 个选项，可选多个
+- **判断题**：class 包含 `num_option`，每题 2 个选项（A对/B错），选 1 个
+- **选中状态**：class 包含 `check_answer`（单选题/判断题）或 `check_answer_dx`（多选题）
+- **点击方式**：`el.click()`
+
+#### 题目-选项映射
+
+每个选项的 `parentElement.parentElement`（即 `.stem_answer`）包含题目文本：
+
+```javascript
+var questions = document.querySelectorAll('.stem_answer');
+Array.from(questions).map(function(q, i) {
+  var qText = q.innerText?.trim()?.substring(0, 80);
+  var options = q.querySelectorAll('[class*="choice"]');
+  var opts = Array.from(options).map(function(opt) {
+    return {text: opt.innerText?.trim(), checked: opt.className.includes('check')};
+  });
+  return {idx: i, question: qText, options: opts};
+});
+```
+
+#### 批量填写答案（JavaScript）
+
+```javascript
+// 1. 构建题目-答案映射（根据题目内容匹配答案）
+var answerMap = {
+  '寻找哈希函数H(·)具有相同输出的两个任意输入的攻击为第': 'C',
+  '生日攻击是针对下面哪种密码算法的分析方法': 'C',
+  // ... 更多题目
+};
+
+// 2. 遍历所有题目，根据内容匹配答案并点击
+var questions = document.querySelectorAll('.stem_answer');
+Array.from(questions).forEach(function(q) {
+  var qText = q.innerText?.trim();
+  Object.keys(answerMap).forEach(function(key) {
+    if (qText.indexOf(key) === 0) {
+      var answer = answerMap[key];
+      var options = q.querySelectorAll('[class*="choice"]');
+      var correctOpt = null;
+      var wrongOpt = null;
+      Array.from(options).forEach(function(opt) {
+        var optText = opt.innerText?.trim();
+        var isChecked = opt.className.includes('check');
+        if (optText === answer) correctOpt = opt;
+        else if (isChecked) wrongOpt = opt;
+      });
+      if (correctOpt && !correctOpt.className.includes('check')) {
+        if (wrongOpt) wrongOpt.click();  // 先取消错误选项
+        correctOpt.click();              // 再选中正确选项
+      }
+    }
+  });
+});
+```
+
+#### 填空题/简答题（UEditor iframe）
+
+```javascript
+// 获取所有填空题的 iframe
+var iframes = document.querySelectorAll('iframe');
+var answers = ['答案1', '答案2', ...];
+
+iframes.forEach(function(f, i) {
+  if (f.src && f.src.includes('javascript:void') && answers[i]) {
+    var doc = f.contentDocument;
+    if (doc && doc.body) {
+      doc.body.focus();
+      doc.execCommand('selectAll');
+      doc.execCommand('delete');
+      doc.execCommand('insertText', false, answers[i]);
+      var p = doc.querySelector('p');
+      if (p) p.dispatchEvent(new Event('input', {bubbles: true}));
+    }
+  }
+});
+```
+
+#### 验证填写结果
+
+```javascript
+// 检查所有题目是否都已填写
+var questions = document.querySelectorAll('.stem_answer');
+var allComplete = true;
+questions.forEach(function(q) {
+  var options = q.querySelectorAll('[class*="choice"]');
+  var iframes = q.querySelectorAll('iframe');
+  var hasChecked = Array.from(options).some(function(opt) {
+    return opt.className.includes('check');
+  });
+  var hasFilledIframe = Array.from(iframes).some(function(f) {
+    return f.contentDocument?.body?.innerText?.trim();
+  });
+  if (options.length > 0 && !hasChecked) allComplete = false;
+  if (iframes.length > 0 && !hasFilledIframe) allComplete = false;
+});
+```
 
 ### 完整已验证流程
 
@@ -536,8 +643,12 @@ i.chaoxing.com/base (个人空间)
 4. 等待 5-10 秒
 5. tabs list 检查所有标签页，找到 URL 含 /work/dowork 的新标签页
 6. 切换到新标签页，snapshot 确认作业详情页已加载
-7. 填写作业内容
-8. ⚠️ 默认点「暂时保存」，用户明确同意后才点「提交」
+7. 填写作业内容：
+   a. 用 JavaScript 分析 DOM 结构，构建题目-答案映射
+   b. 批量点击选择题选项（单选/多选/判断）
+   c. 用 iframe.contentDocument.execCommand 填写填空题/简答
+8. 验证所有题目都已填写
+9. ⚠️ 默认点「暂时保存」，用户明确同意后才点「提交」
 ```
 
 ### 优化细节
@@ -546,3 +657,4 @@ i.chaoxing.com/base (个人空间)
 - **操作前检查 URL**：避免重复操作
 - **标签页管理**：关掉多余的标签页，只保留需要的
 - **Cookie 过期**：URL 跳转到 passport2.chaoxing.com/login 时，提示用户手动登录
+- **不要上网搜索答案**：根据知识库直接给出答案
